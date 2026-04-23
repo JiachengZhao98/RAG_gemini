@@ -1,0 +1,15 @@
+# Security
+.env
+
+# Local Vector Database
+local_chroma_db/
+vector_store/
+
+# Python environments and caches
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# macOS
+.DS_Store

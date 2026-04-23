@@ -1,0 +1,8 @@
+what is rag
+what is chroma
+what is a virtual environment
+what are embeddings
+what is python
+what is java
+what is docker
+what is spring boot
