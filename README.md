@@ -6,12 +6,36 @@ A RAG system built with Python, the Gemini API, and Chroma. Supports two chunkin
 ## Features
 - Walks a source tree and loads files (excludes build artifacts, binaries, etc.)
 - Two chunkers, switchable via `CHUNKER_VERSION`:
-  - **V1** — text-based chunking for `.md` / `.txt`
+  - **V1** — fixed-size character-window chunker (300 chars, 50 overlap), no syntax awareness. Used as baseline for evaluation comparison.
   - **V2** — `javalang` AST-based chunking for `.java`, with inferred metadata; falls back to V1 for non-Java files
-- Embeds chunks with Gemini
+- Embeds chunks with `BAAI/bge-small-en-v1.5` (local, no API costs — ingest can be re-run dozens of times during evaluation iteration)
 - Stores vectors in Chroma (one collection per chunker version: `rag_v1`, `rag_v2`)
 - Retrieves top-k chunks
 - Answers questions over the retrieved context, with source attribution
+
+## Experiments & Results
+
+- [Step 0: V1 vs V2 Chunker Baseline](experiments/step0/README.md) —
+  Controlled comparison setup, 5-query manual retrieval, V1 vs V2
+  findings, and motivations for upcoming work.
+
+(More to come: W1 evaluation framework, W2 BM25 hybrid + reranker,
+W5 chunking ablation.)
+
+## Corpus
+
+The default corpus for evaluation is a Spring Boot reference project
+([OnlineShoppingApp](https://github.com/JiachengZhao98/Online_Shopping_App)),
+chosen because it has:
+
+- Clear architectural layers (controller / service / dao / entity / dto)
+- Real Spring DI, JPA, Spring Security, and AOP — exposes the rich
+  metadata V2 chunker is designed to extract
+- ~50 Java files, enough for meaningful chunking and retrieval
+  comparison without slow ingest
+
+Configure the corpus path via `SHOPPING_APP_ROOT` (or edit
+`app/ingest.py`'s `__main__` block).
 
 ## Project Structure
 - [app/](app/) — main package
@@ -19,7 +43,7 @@ A RAG system built with Python, the Gemini API, and Chroma. Supports two chunkin
   - [app/chunking/chunker.py](app/chunking/chunker.py) — V1 text chunker
   - [app/chunking/chunker_v2.py](app/chunking/chunker_v2.py) — V2 Java AST chunker
   - [app/chunking/metadata_inference.py](app/chunking/metadata_inference.py) — layer / role-scope inference + shared `Chunk` / `ChunkMetadata` schema
-  - [app/embedder.py](app/embedder.py) — Gemini embedding wrapper
+  - [app/embedder.py](app/embedder.py) — Embeds chunks with `BAAI/bge-small-en-v1.5`
   - [app/retriever.py](app/retriever.py) — Chroma top-k retrieval
   - [app/prompt.py](app/prompt.py) — RAG prompt builder
   - [app/chat.py](app/chat.py) — interactive Q&A loop
@@ -39,7 +63,6 @@ A RAG system built with Python, the Gemini API, and Chroma. Supports two chunkin
    GEMINI_CHAT_MODEL=gemini-...
    GEMINI_EMBED_MODEL=gemini-embedding-...
    CHROMA_DIR=./vector_store
-   CHUNKER_VERSION=v1   # or v2
    ```
 4. Run the indexer, then chat.
 
@@ -54,7 +77,23 @@ CHUNKER_VERSION=v2 python -m app.ingest   # ingest with the V2 Java chunker
 Re-running ingestion drops and recreates the collection for the active `CHUNKER_VERSION`.
 
 ## V2 metadata fields
-`ChunkMetadata` (see [metadata_inference.py](app/chunking/metadata_inference.py)) carries fields such as: `chunk_id`, `source`, `relative_path`, `layer` (controller / service / repository / …), `role_scope`, `http_method`, `http_path`, `path_params`, `query_params`, `annotations`, `injected_dependencies`, `calls`. These are flattened to comma-separated strings for Chroma compatibility.
+## V2 metadata fields
+
+`ChunkMetadata` (see [metadata_inference.py](app/chunking/metadata_inference.py))
+carries:
+
+- **Identity**: `chunk_id`, `chunk_type` (class_header / method / char_window),
+  `chunker_version`, `fq_name`
+- **Location**: `source_path`, `start_line`, `end_line`, `file_type`
+- **Code semantics**: `package`, `class_name`, `method_name`,
+  `layer` (controller / service / dao / dto / entity / config / aspect),
+  `role_scope` (buyer / seller / auth)
+- **HTTP semantics** (controller methods only): `http_method`,
+  `endpoint_path`, `path_params`, `query_params`
+- **Annotations & dependencies**: `annotations`, `calls`,
+  `injected_dependencies`
+
+List-valued fields are flattened to comma-separated strings on Chroma write (Chroma metadata only supports scalar values).
 
 ## Limitations
 - V2 AST parsing is Java-only; other file types fall back to V1
