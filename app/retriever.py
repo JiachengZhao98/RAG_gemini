@@ -1,4 +1,4 @@
-from app.indexer import get_chroma_collection, embed_text
+from app.ingest import get_chroma_collection, embed_text
 
 """
 retrieve: retrieve documents from chroma collection

@@ -1,36 +1,36 @@
-from pyexpat import model
-from app.gemini_client import get_client
+import chromadb
 from app.config import settings
+from collections import Counter
 
+client = chromadb.PersistentClient(path=settings.CHROMA_DIR)
+col = client.get_collection("rag_v2")
 
-def test_generatioin():
-    client = get_client()
-    response = client.models.generate_content(
-        model=settings.GEMINI_CHAT_MODEL,
-        contents="explain RAG in one sentence"
-    )
+# pull all metadata
+res = col.get(include=["metadatas"])
 
-    print("=== Generation Result ===")
-    print(response.text)
+# count chunk types
+chunk_types = Counter(m.get("chunk_type") for m in res["metadatas"])
+print("chunk_type distribution:")
+for t, n in chunk_types.most_common():
+    print(f"  {t:20} {n}")
 
+# count file_types
+file_types = Counter(m.get("file_type") for m in res["metadatas"])
+print("\nfile_type distribution:")
+for t, n in file_types.most_common():
+    print(f"  {t:20} {n}")
 
-def test_embedding():
-    client = get_client()
+# count chunks per layer
+layers = Counter(m.get("layer") for m in res["metadatas"])
+print("\nlayer distribution:")
+for t, n in layers.most_common():
+    print(f"  {str(t):20} {n}")
 
-    response = client.models.embed_content(
-        model=settings.GEMINI_EMBED_MODEL,
-        contents="RAG combines retrieval with generation."
-    )
+# how many V2 chunks have endpoint_path filled?
+with_endpoint = sum(1 for m in res["metadatas"] if m.get("endpoint_path"))
+print(f"\nchunks with endpoint_path: {with_endpoint}")
 
-    print("=== Embedding Result ===")
-    print(f"Embedding vector count: {len(response.embeddings)}")
-    print(f"Embedding dimension: {len(response.embeddings[0].values)}")
-
-
-if __name__ == "__main__":
-    test_generatioin()
-    print()
-    test_embedding()
-
-
+# how many have method_name?
+with_method = sum(1 for m in res["metadatas"] if m.get("method_name"))
+print(f"chunks with method_name: {with_method}")
 

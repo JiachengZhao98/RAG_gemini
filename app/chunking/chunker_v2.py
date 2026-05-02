@@ -4,40 +4,9 @@ from typing import Optional
 from pathlib import Path
 import javalang
 import re
-from metadata_inference import infer_layer, infer_role_scope
+from .metadata_inference import infer_layer, infer_role_scope, Chunk, ChunkMetadata
 
-@dataclass
-class ChunkMetadata:
-    chunk_id: str
-    chunk_type: str  # "class_header" | "method" | "file"
-    source_path: str
-    start_line: int
-    end_line: int
-    file_type: str
-    package: Optional[str] = None
-    class_name: Optional[str] = None
-    method_name: Optional[str] = None
-    fq_name: Optional[str] = None
-    layer: Optional[str] = None
-    role_scope: Optional[str] = None
-    http_method: Optional[str] = None
-    endpoint_path: Optional[str] = None
-    path_params: list = field(default_factory=list)
-    query_params: list = field(default_factory=list)
-    annotations: list = field(default_factory=list)
-    calls: list = field(default_factory=list)
-    injected_dependencies: list = field(default_factory=list)
-    is_synthetic: bool = False
-
-
-@dataclass
-class Chunk:
-    content: str
-    metadata: ChunkMetadata
-
-    def to_dict(self):
-        return {"content": self.content, "metadata": asdict(self.metadata)}
-
+CHUNKER_VERSION = "v2"
 
 # ---------- Annotation parsing helpers ----------
 
@@ -137,12 +106,12 @@ def chunk_java_file(content: str, relative_path: str) -> list[Chunk]:
         return [_file_fallback_chunk(content, relative_path, "java")]
 
     source_lines = content.splitlines()
-    package = tree.package.name if tree.package else None
+    package = tree.package.name if tree.package else None # type: ignore
     layer = infer_layer(package or "", relative_path)
     role_scope = infer_role_scope(package or "", relative_path)
 
     chunks = []
-    for path, class_node in tree.filter(javalang.tree.ClassDeclaration):
+    for path, class_node in tree.filter(javalang.tree.ClassDeclaration): # type: ignore
         chunks.extend(_chunk_class(
             class_node=class_node,
             source_lines=source_lines,
@@ -220,6 +189,7 @@ def _make_class_header_chunk(class_node, source_lines, relative_path, package,
     end_line = start_line  # synthetic chunk, not tied to end; or use last method's end
 
     meta = ChunkMetadata(
+        chunker_version=CHUNKER_VERSION,
         chunk_id=f"{class_name}__class__L{start_line}",
         chunk_type="class_header",
         source_path=relative_path,
@@ -280,6 +250,7 @@ def _make_method_chunk(method, source_lines, relative_path, package, class_name,
 
     meta = ChunkMetadata(
         chunk_id=f"{class_name}_{method.name}_L{start}",
+        chunker_version=CHUNKER_VERSION,
         chunk_type="method",
         source_path=relative_path,
         start_line=start,
@@ -316,6 +287,7 @@ def _file_fallback_chunk(content, relative_path, file_type):
         content=content,
         metadata=ChunkMetadata(
             chunk_id=f"{Path(relative_path).name}__file",
+            chunker_version="v2",
             chunk_type="file",
             source_path=relative_path,
             start_line=1,
